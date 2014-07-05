@@ -4,9 +4,6 @@
 	<meta charset="utf-8">
 
         <script type="text/javascript">
-          {% if config.quick_reply %}
-            var new_reply_string = "{{ config.button_reply }}";
-          {% endif %}
           {% if not no_post_form %}
             var active_page = "index";
 	  {% else %}
@@ -79,7 +76,11 @@
 	{{ config.ad.bottom }}
 
 	<footer>
-		<p class="unimportant" style="margin-top:20px;text-align:center;">Powered by <a href="http://tinyboard.org/">Tinyboard</a> {{ config.version }} | <a href="http://tinyboard.org/">Tinyboard</a> Copyright &copy; 2010-2013 Tinyboard Development Group</p>
+		<p class="unimportant" style="margin-top:20px;text-align:center;">- <a href="http://tinyboard.org/">Tinyboard</a> + 
+			<a href='https://int.vichan.net/devel/'>vichan</a> {{ config.version }} -
+		<br><a href="http://tinyboard.org/">Tinyboard</a> Copyright &copy; 2010-2014 Tinyboard Development Group
+		<br><a href="https://int.vichan.net/devel/">vichan</a> Copyright &copy; 2012-2014 vichan-devel</p>
+
 		{% for footer in config.footer %}<p class="unimportant" style="text-align:center;">{{ footer }}</p>{% endfor %}
 	</footer>
 	<script type="text/javascript">{% raw %}

@@ -23,6 +23,7 @@
  *
  */
 
+	defined('TINYBOARD') or exit;
 
 /*
  * =======================
@@ -269,10 +270,10 @@
 		'recaptcha_challenge_field',
 		'recaptcha_response_field',
 		'spoiler',
-		'quick-reply',
 		'page',
 		'file_url',
 		'json_response',
+		'user_flag',
 	);
 
 	// Enable reCaptcha to make spam even harder. Rarely necessary.
@@ -449,6 +450,8 @@
 	// Maximum filename length to display (the rest can be viewed upon mouseover).
 	$config['max_filename_display'] = 30;
 
+	// Allow users to delete their own posts?
+	$config['allow_delete'] = true;
 	// How long after posting should you have to wait before being able to delete that post? (In seconds.)
 	$config['delete_time'] = 10;
 	// Reply limit (stops bumping thread when this is reached).
@@ -523,11 +526,28 @@
 	// When true, users are instead presented a selectbox for email. Contains, blank, noko and sage.
 	$config['field_email_selectbox'] = false;
 
-	// Attach country flags to posts. Requires the PHP "geoip" extension to be installed:
-	// http://www.php.net/manual/en/intro.geoip.php. In the future, maybe I will find and include a proper
-	// pure-PHP geolocation library.
+	// Attach country flags to posts.
 	$config['country_flags'] = false;
 
+	// Load all country flags from one file
+	$config['country_flags_condensed'] = true;
+	$config['country_flags_condensed_css'] = 'static/flags/flags.css';
+
+	// Allow the user choose a /pol/-like user_flag that will be shown in the post. For the user flags, please be aware
+	// that you will have to disable BOTH country_flags and contry_flags_condensed optimization (at least on a board
+	// where they are enabled).
+	$config['user_flag'] = false;
+	
+	// List of user_flag the user can choose. Flags must be placed in the directory set by $config['uri_flags']
+	$config['user_flags'] = array();
+	/* example: 
+	$config['user_flags'] = array (
+		'nz' => 'Nazi',
+		'cm' => 'Communist',
+		'eu' => 'Europe'
+	);
+	*/
+	
 /*
 * ====================
 *  Ban settings
@@ -588,6 +608,17 @@
  *  Image settings
  * ====================
  */
+	// Maximum number of images allowed. Increasing this number enabled multi image.
+	// If you make it more than 1, make sure to enable the below script for the post form to change.
+	// $config['additional_javascript'][] = 'js/multi_image.js';
+	$config['max_images'] = 1;
+
+	// Method to use for determing the max filesize. 
+	// "split" means that your max filesize is split between the images. For example, if your max filesize
+	// is 2MB, the filesizes of all files must add up to 2MB for it to work. 
+	// "each" means that each file can be 2MB, so if your max_images is 3, each post could contain 6MB of 
+	// images. "split" is recommended.
+	$config['multiimage_method'] = 'split';
 
 	// For resizing, maximum thumbnail dimensions.
 	$config['thumb_width'] = 255;
@@ -609,22 +640,22 @@
 	/*
 	 * Thumbnailing method:
 	 *
-	 *   'gd'           PHP GD (default). Only handles the most basic image formats (GIF, JPEG, PNG).
-	 *                  GD is a prerequisite for Tinyboard no matter what method you choose.
+	 *   'gd'		   PHP GD (default). Only handles the most basic image formats (GIF, JPEG, PNG).
+	 *				  GD is a prerequisite for Tinyboard no matter what method you choose.
 	 *
-	 *   'imagick'      PHP's ImageMagick bindings. Fast and efficient, supporting many image formats. 
-	 *                  A few minor bugs. http://pecl.php.net/package/imagick
+	 *   'imagick'	  PHP's ImageMagick bindings. Fast and efficient, supporting many image formats. 
+	 *				  A few minor bugs. http://pecl.php.net/package/imagick
 	 *
-	 *   'convert'      The command line version of ImageMagick (`convert`). Fixes most of the bugs in
-	 *                  PHP Imagick. `convert` produces the best still thumbnails and is highly recommended.
+	 *   'convert'	  The command line version of ImageMagick (`convert`). Fixes most of the bugs in
+	 *				  PHP Imagick. `convert` produces the best still thumbnails and is highly recommended.
 	 *
-	 *   'gm'           GraphicsMagick (`gm`) is a fork of ImageMagick with many improvements. It is more
-	 *                  efficient and gets thumbnailing done using fewer resources.
+	 *   'gm'		   GraphicsMagick (`gm`) is a fork of ImageMagick with many improvements. It is more
+	 *				  efficient and gets thumbnailing done using fewer resources.
 	 *
 	 *   'convert+gifscale'
-	 *    OR  'gm+gifsicle'  Same as above, with the exception of using `gifsicle` (command line application)
-	 *                       instead of `convert` for resizing GIFs. It's faster and resulting animated
-	 *                       thumbnails have less artifacts than if resized with ImageMagick.
+	 *	OR  'gm+gifsicle'  Same as above, with the exception of using `gifsicle` (command line application)
+	 *					   instead of `convert` for resizing GIFs. It's faster and resulting animated
+	 *					   thumbnails have less artifacts than if resized with ImageMagick.
 	 */
 	$config['thumb_method'] = 'gd';
 	// $config['thumb_method'] = 'convert';
@@ -674,12 +705,13 @@
 
 	// An alternative function for generating image filenames, instead of the default UNIX timestamp.
 	// $config['filename_func'] = function($post) {
-	//      return sprintf("%s", time() . substr(microtime(), 2, 3));
+	//	  return sprintf("%s", time() . substr(microtime(), 2, 3));
 	// };
 
 	// Thumbnail to use for the non-image file uploads.
 	$config['file_icons']['default'] = 'file.png';
 	$config['file_icons']['zip'] = 'zip.png';
+	$config['file_icons']['webm'] = 'video.png';
 	// Example: Custom thumbnail for certain file extension.
 	// $config['file_icons']['extension'] = 'some_file.png';
 
@@ -710,8 +742,12 @@
 	// Display the file's original filename.
 	$config['show_filename'] = true;
 
-	// Display image identification links using regex.info/exif, TinEye and Google Images.
+	// Display image identification links using ImgOps, regex.info/exif and Google Images.
 	$config['image_identification'] = false;
+	// Which of the identification links to display. Only works if $config['image_identification'] is true.
+	$config['image_identification_imgops'] = true;
+	$config['image_identification_exif'] = true;
+	$config['image_identification_google'] = true;
 	
 	// Number of posts in a "View Last X Posts" page
 	$config['noko50_count'] = 50;
@@ -742,11 +778,6 @@
 
 	// Number of reports you can create at once.
 	$config['report_limit'] = 3;
-
-	// Attention Whoring Bar
-	// REMEMBER TO CHMOD attentionbar.txt PROPERLY
-	// Oh, and add jQuery in additional_javascript.
-	$config['attention_bar'] = false;
 
 	// Allow unfiltered HTML in board subtitle. This is useful for placing icons and links.
 	$config['allow_subtitle_html'] = false;
@@ -908,9 +939,6 @@
 	// Minify Javascript using http://code.google.com/p/minify/.
 	$config['minify_js'] = false;
 
-	// Allows js/quick-reply-old.js to work. This could make your imageboard more vulnerable to flood attacks.
-	$config['quick_reply'] = false;
-
 /*
  * ====================
  *  Video embedding
@@ -966,6 +994,7 @@
 	$config['error']['toolong_body']	= _('The body was too long.');
 	$config['error']['tooshort_body']	= _('The body was too short or empty.');
 	$config['error']['noimage']		= _('You must upload an image.');
+	$config['error']['toomanyimages'] = _('You have attempted to upload too many images!');
 	$config['error']['nomove']		= _('The server failed to handle your upload.');
 	$config['error']['fileext']		= _('Unsupported image format.');
 	$config['error']['noboard']		= _('Invalid board!');
@@ -1071,11 +1100,14 @@
 	// Home directory. Used by themes.
 	$config['dir']['home'] = '';
 
+	// Location of a blank 1x1 gif file. Only used when country_flags_condensed is enabled
+	// $config['image_blank'] = 'static/blank.gif';
+
 	// Static images. These can be URLs OR base64 (data URI scheme). These are only used if
 	// $config['font_awesome'] is false (default).
-	// $config['image_sticky']	= 'static/sticky.gif';
+	// $config['image_sticky']	= 'static/sticky.png';
 	// $config['image_locked']	= 'static/locked.gif';
-	// $config['image_bumplocked']	= 'static/sage.gif'.
+	// $config['image_bumplocked']	= 'static/sage.png'.
 
 	// If you want to put images and other dynamic-static stuff on another (preferably cookieless) domain.
 	// This will override $config['root'] and $config['dir']['...'] directives. "%s" will get replaced with
@@ -1185,7 +1217,7 @@
 	// When moving a thread to another board and choosing to keep a "shadow thread", an automated post (with
 	// a capcode) will be made, linking to the new location for the thread. "%s" will be replaced with a
 	// standard cross-board post citation (>>>/board/xxx)
-	$config['mod']['shadow_mesage'] = 'Moved to %s.';
+	$config['mod']['shadow_mesage'] = _('Moved to %s.');
 	// Capcode to use when posting the above message.
 	$config['mod']['shadow_capcode'] = 'Mod';
 	// Name to use when posting the above message. If false, $config['anonymous'] will be used.
@@ -1376,6 +1408,8 @@
 	$config['mod']['view_ban_appeals'] = MOD;
 	// Accept and deny ban appeals
 	$config['mod']['ban_appeals'] = MOD;
+	// View the recent posts page
+	$config['mod']['recent'] = MOD;
 
 	// Config editor permissions
 	$config['mod']['config'] = array();
@@ -1410,6 +1444,9 @@
 	// 	'db',
 	// );
 
+	// Allow OP to remove arbitrary posts in his thread
+	$config['user_moderation'] = false;
+
 /*
  * ====================
  *  Public post search
@@ -1421,16 +1458,16 @@
 	$config['search']['enable'] = false;
 
 	// Maximal number of queries per IP address per minutes
-        $config['search']['queries_per_minutes'] = Array(15, 2);
+    $config['search']['queries_per_minutes'] = Array(15, 2);
 
 	// Global maximal number of queries per minutes
-        $config['search']['queries_per_minutes_all'] = Array(50, 2);
+    $config['search']['queries_per_minutes_all'] = Array(50, 2);
 
 	// Limit of search results
-        $config['search']['search_limit'] = 100;
-        
+    $config['search']['search_limit'] = 100;
+		
 	// Boards for searching
-        //$config['search']['boards'] = array('a', 'b', 'c', 'd', 'e');
+    //$config['search']['boards'] = array('a', 'b', 'c', 'd', 'e');
 
 /*
  * ====================
@@ -1459,7 +1496,7 @@
 
 	// Whether or not to enable the 4chan-compatible API, disabled by default. See
 	// https://github.com/4chan/4chan-API for API specification.
-	$config['api']['enabled'] = false;
+	$config['api']['enabled'] = true;
 
 	// Extra fields in to be shown in the array that are not in the 4chan-API. You can get these by taking a
 	// look at the schema for posts_ tables. The array should be formatted as $db_column => $translated_name.
@@ -1496,6 +1533,23 @@
 	// 	if (!hasPermission($config['mod']['something']))
 	// 		error($config['error']['noaccess']);
 	// 	// ...
+	// };
+
+	// You can also enable themes (like ukko) in mod panel like this:
+	// require_once("templates/themes/ukko/theme.php");
+	//
+	// $config['mod']['custom_pages']['/\*/'] = function() {
+	//        global $mod;
+	//
+	//        $ukko = new ukko();
+	//        $ukko->settings = array();
+	//        $ukko->settings['uri'] = '*';
+	//        $ukko->settings['title'] = 'derp';
+	//        $ukko->settings['subtitle'] = 'derpity';
+	//        $ukko->settings['thread_limit'] = 15;
+	//        $ukko->settings['exclude'] = '';
+	//
+	//        echo $ukko->build($mod);
 	// };
 
 	// Example: Add links to dashboard (will all be in a new "Other" category).

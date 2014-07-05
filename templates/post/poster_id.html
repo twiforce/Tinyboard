@@ -1,0 +1,7 @@
+{% if config.poster_ids %}
+	{% if post.thread %}
+		 ID: {{ post.ip|poster_id(post.thread) }} 
+	{% else %}
+		 ID: {{ post.ip|poster_id(post.id) }} 
+	{% endif %}
+{% endif %}

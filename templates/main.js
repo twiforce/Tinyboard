@@ -155,7 +155,7 @@ function highlightReply(id) {
 		if (post)
 			post.className += ' highlighted';
 	}
-	return false;
+	return true;
 }
 
 function generatePassword() {
@@ -187,6 +187,8 @@ function dopost(form) {
 
 function citeReply(id, with_link) {
 	var textarea = document.getElementById('body');
+
+	if (!textarea) return false;
 	
 	if (document.selection) {
 		// IE
@@ -264,10 +266,14 @@ var script_settings = function(script_name) {
 
 function init() {
 	init_stylechooser();
-	
+
+	{% endraw %}	
+	{% if config.allow_delete %}
 	if (document.forms.postcontrols) {
 		document.forms.postcontrols.password.value = localStorage.password;
 	}
+	{% endif %}
+	{% raw %}
 	
 	if (window.location.hash.indexOf('q') != 1 && window.location.hash.substring(1))
 		highlightReply(window.location.hash.substring(1));
@@ -288,9 +294,12 @@ function ready() {
 	}
 }
 
-onready(init);
-
 {% endraw %}
+
+var post_date = "{{ config.post_date }}";
+var max_images = {{ config.max_images }};
+
+onready(init);
 
 {% if config.google_analytics %}{% raw %}
 

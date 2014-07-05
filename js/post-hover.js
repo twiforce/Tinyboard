@@ -32,11 +32,8 @@ onready(function(){
 		}
 		
 		var board = $(this);
-		var i = 0;
 		while (board.data('board') === undefined) {
 			board = board.parent();
-			i++;
-			if (i >= 10) return;
 		}
 		var threadid;
 		if ($link.is('[data-thread]')) threadid = 0;
@@ -69,6 +66,7 @@ onready(function(){
 					var $newPost = $post.clone();
 					$newPost.find('>.reply, >br').remove();
 					$newPost.find('span.mentioned').remove();
+					$newPost.find('a.post_anchor').remove();
 
 					$newPost
 						.attr('id', 'post-hover-' + id)

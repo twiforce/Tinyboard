@@ -4,7 +4,9 @@
 	function ukko_build($action, $settings) {
 		$ukko = new ukko();
 		$ukko->settings = $settings;
-		$ukko->build();
+		
+		file_write($settings['uri'] . '/index.html', $ukko->build());
+		file_write($settings['uri'] . '/ukko.js', Element('themes/ukko/ukko.js', array()));
 	}
 	
 	class ukko {
@@ -51,14 +53,14 @@
 					
 					$num_images = 0;
 					while ($po = $posts->fetch()) {
-						if ($po['file'])
+						if ($po['files'])
 							$num_images++;
 						
 						$thread->add(new Post($po, $mod ? '?/' : $config['root'], $mod));
 					
 					}
 					if ($posts->rowCount() == ($post['sticky'] ? $config['threads_preview_sticky'] : $config['threads_preview'])) {
-						$ct = prepare(sprintf("SELECT COUNT(`id`) as `num` FROM ``posts_%s`` WHERE `thread` = :thread UNION ALL SELECT COUNT(`id`) FROM ``posts_%s`` WHERE `file` IS NOT NULL AND `thread` = :thread", $post['board'], $post['board']));
+						$ct = prepare(sprintf("SELECT COUNT(`id`) as `num` FROM ``posts_%s`` WHERE `thread` = :thread UNION ALL SELECT COUNT(`id`) FROM ``posts_%s`` WHERE `files` IS NOT NULL AND `thread` = :thread", $post['board'], $post['board']));
 						$ct->bindValue(':thread', $post['id'], PDO::PARAM_INT);
 						$ct->execute() or error(db_error($count));
 						
@@ -85,17 +87,16 @@
 			}
 
 			$body .= '<script> var overflow = ' . json_encode($overflow) . '</script>';
-			$body .= '<script type="text/javascript" src="ukko.js"></script>';
+			$body .= '<script type="text/javascript" src="/'.$this->settings['uri'].'/ukko.js"></script>';
 
-			file_write($this->settings['uri'] . '/index.html', Element('index.html', array(
+			return Element('index.html', array(
 				'config' => $config,
 				'board' => $board,
 				'no_post_form' => true,
 				'body' => $body,
-				'boardlist' => createBoardlist($mod)
-			)));
-
-			file_write($this->settings['uri'] . '/ukko.js', Element('themes/ukko/ukko.js', array()));			
+				'mod' => $mod,
+				'boardlist' => createBoardlist($mod),
+			));
 		}
 		
 	};

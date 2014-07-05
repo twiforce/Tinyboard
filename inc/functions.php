@@ -28,8 +28,25 @@ register_shutdown_function('fatal_error_handler');
 mb_internal_encoding('UTF-8');
 loadConfig();
 
+function init_locale($locale, $error='error') {
+	if (_setlocale(LC_ALL, $locale) === false) {
+		$error('The specified locale (' . $locale . ') does not exist on your platform!');
+	}
+	if (extension_loaded('gettext')) {
+		bindtextdomain('tinyboard', './inc/locale');
+		bind_textdomain_codeset('tinyboard', 'UTF-8');
+		textdomain('tinyboard');
+	} else {
+		_bindtextdomain('tinyboard', './inc/locale');
+		_bind_textdomain_codeset('tinyboard', 'UTF-8');
+		_textdomain('tinyboard');
+	}
+}
+$current_locale = 'en';
+
+
 function loadConfig() {
-	global $board, $config, $__ip, $debug, $__version, $microtime_start;
+	global $board, $config, $__ip, $debug, $__version, $microtime_start, $current_locale;
 
 	$error = function_exists('error') ? 'error' : 'basic_error_function_because_the_other_isnt_loaded_yet';
 
@@ -70,14 +87,41 @@ function loadConfig() {
 		$config[$key] = array();
 	}
 
-	require 'inc/config.php';
 	if (!file_exists('inc/instance-config.php'))
 		$error('Tinyboard is not configured! Create inc/instance-config.php.');
+
+	// Initialize locale as early as possible
+
+	$config['locale'] = 'en';
+
+	$configstr = file_get_contents('inc/instance-config.php');
+
+		if (isset($board['dir']) && file_exists($board['dir'] . '/config.php')) {
+				$configstr .= file_get_contents($board['dir'] . '/config.php');
+		}
+	$matches = array();
+	preg_match_all('/[^\/*#]\$config\s*\[\s*[\'"]locale[\'"]\s*\]\s*=\s*([\'"])(.*?)\1/', $configstr, $matches);
+	if ($matches && isset ($matches[2]) && $matches[2]) {
+		$matches = $matches[2];
+		$config['locale'] = $matches[count($matches)-1];
+	}
+
+	if ($config['locale'] != $current_locale) {
+		$current_locale = $config['locale'];
+		init_locale($config['locale'], $error);
+	}
+
+	require 'inc/config.php';
 
 	require 'inc/instance-config.php';
 
 	if (isset($board['dir']) && file_exists($board['dir'] . '/config.php')) {
 		require $board['dir'] . '/config.php';
+	}
+
+	if ($config['locale'] != $current_locale) {
+		$current_locale = $config['locale'];
+		init_locale($config['locale'], $error);
 	}
 
 	if (!isset($__version))
@@ -124,6 +168,9 @@ function loadConfig() {
 	if (!isset($config['dir']['static']))
 		$config['dir']['static'] = $config['root'] . 'static/';
 
+	if (!isset($config['image_blank']))
+		$config['image_blank'] = $config['dir']['static'] . 'blank.gif';
+
 	if (!isset($config['image_sticky']))
 		$config['image_sticky'] = $config['dir']['static'] . 'sticky.gif';
 	if (!isset($config['image_locked']))
@@ -154,6 +201,10 @@ function loadConfig() {
 		$config['additional_javascript_url'] = $config['root'];
 	if (!isset($config['uri_flags']))
 		$config['uri_flags'] = $config['root'] . 'static/flags/%s.png';
+	if (!isset($config['user_flag']))
+		$config['user_flag'] = false;
+	if (!isset($config['user_flags']))
+		$config['user_flags'] = array();
 
 	if ($config['root_file']) {
 		chdir($config['root_file']);
@@ -164,6 +215,8 @@ function loadConfig() {
 		error_reporting(E_ALL);
 		ini_set('display_errors', true);
 		ini_set('html_errors', false);
+	} else {
+		ini_set('display_errors', false);
 	}
 
 	// Keep the original address to properly comply with other board configurations
@@ -174,21 +227,6 @@ function loadConfig() {
 	if (preg_match('/^\:\:(ffff\:)?(\d+\.\d+\.\d+\.\d+)$/', $__ip, $m))
 		$_SERVER['REMOTE_ADDR'] = $m[2];
 
-	if ($config['locale'] != 'en') {
-		if (_setlocale(LC_ALL, $config['locale']) === false) {
-			$error('The specified locale (' . $config['locale'] . ') does not exist on your platform!');
-		}
-		if (extension_loaded('gettext')) {
-			bindtextdomain('tinyboard', './inc/locale');
-			bind_textdomain_codeset('tinyboard', 'UTF-8');
-			textdomain('tinyboard');
-		} else {
-			_bindtextdomain('tinyboard', './inc/locale');
-			_bind_textdomain_codeset('tinyboard', 'UTF-8');
-			_textdomain('tinyboard');
-		}
-	}
-
 	if ($config['syslog'])
 		openlog('tinyboard', LOG_ODELAY, LOG_SYSLOG); // open a connection to sysem logger
 
@@ -196,6 +234,12 @@ function loadConfig() {
 		require_once 'inc/lib/recaptcha/recaptchalib.php';
 	if ($config['cache']['enabled'])
 		require_once 'inc/cache.php';
+
+	if (in_array('webm', $config['allowed_ext_files'])) {
+		require_once 'inc/lib/webm/posthandler.php';
+		event_handler('post', 'postHandler');
+	}
+
 	event('load-config');
 	
 	if ($config['debug']) {
@@ -284,13 +328,23 @@ function create_antibot($board, $thread = null) {
 	return _create_antibot($board, $thread);
 }
 
-function rebuildThemes($action, $board = false) {
+function rebuildThemes($action, $boardname = false) {
+	global $config, $board;
+
+	// Save the global variables
+	$_config = $config;
+	$_board = $board;
+
 	// List themes
 	$query = query("SELECT `theme` FROM ``theme_settings`` WHERE `name` IS NULL AND `value` IS NULL") or error(db_error());
 
 	while ($theme = $query->fetch(PDO::FETCH_ASSOC)) {
-		rebuildTheme($theme['theme'], $action, $board);
+		rebuildTheme($theme['theme'], $action, $boardname);
 	}
+
+	// Restore them
+	$config = $_config;
+	$board = $_board;
 }
 
 
@@ -570,17 +624,27 @@ function hasPermission($action = null, $board = null, $_mod = null) {
 	return true;
 }
 
-function listBoards() {
+function listBoards($just_uri = false) {
 	global $config;
 
-	if ($config['cache']['enabled'] && ($boards = cache::get('all_boards')))
+	$just_uri ? $cache_name = 'all_boards_uri' : $cache_name = 'all_boards';
+
+	if ($config['cache']['enabled'] && ($boards = cache::get($cache_name)))
 		return $boards;
 
-	$query = query("SELECT * FROM ``boards`` ORDER BY `uri`") or error(db_error());
-	$boards = $query->fetchAll();
-
+	if (!$just_uri) {
+		$query = query("SELECT * FROM ``boards`` ORDER BY `uri`") or error(db_error());
+		$boards = $query->fetchAll();
+	} else {
+		$boards = array();
+		$query = query("SELECT `uri` FROM ``boards``") or error(db_error());
+		while ($board = $query->fetchColumn()) {
+			$boards[] = $board;
+		}
+	}
+ 
 	if ($config['cache']['enabled'])
-		cache::set('all_boards', $boards);
+		cache::set($cache_name, $boards);
 
 	return $boards;
 }
@@ -627,22 +691,15 @@ function displayBan($ban) {
 	}
 
 	$ban['ip'] = $_SERVER['REMOTE_ADDR'];
+
 	if ($ban['post'] && isset($ban['post']['board'], $ban['post']['id'])) {
 		if (openBoard($ban['post']['board'])) {
-			
-			$query = query(sprintf("SELECT `thumb`, `file` FROM ``posts_%s`` WHERE `id` = " .
+			$query = query(sprintf("SELECT `files` FROM ``posts_%s`` WHERE `id` = " .
 				(int)$ban['post']['id'], $board['uri']));
 			if ($_post = $query->fetch(PDO::FETCH_ASSOC)) {
 				$ban['post'] = array_merge($ban['post'], $_post);
-			} else {
-				$ban['post']['file'] = 'deleted';
-				$ban['post']['thumb'] = false;
 			}
-		} else {
-			$ban['post']['file'] = 'deleted';
-			$ban['post']['thumb'] = false;
 		}
-		
 		if ($ban['post']['thread']) {
 			$post = new Post($ban['post']);
 		} else {
@@ -797,7 +854,7 @@ function insertFloodPost(array $post) {
 
 function post(array $post) {
 	global $pdo, $board;
-	$query = prepare(sprintf("INSERT INTO ``posts_%s`` VALUES ( NULL, :thread, :subject, :email, :name, :trip, :capcode, :body, :body_nomarkup, :time, :time, :thumb, :thumbwidth, :thumbheight, :file, :width, :height, :filesize, :filename, :filehash, :password, :ip, :sticky, :locked, 0, :embed)", $board['uri']));
+	$query = prepare(sprintf("INSERT INTO ``posts_%s`` VALUES ( NULL, :thread, :subject, :email, :name, :trip, :capcode, :body, :body_nomarkup, :time, :time, :files, :num_files, :filehash, :password, :ip, :sticky, :locked, 0, :embed)", $board['uri']));
 
 	// Basic stuff
 	if (!empty($post['subject'])) {
@@ -857,31 +914,12 @@ function post(array $post) {
 	}
 
 	if ($post['has_file']) {
-		$query->bindValue(':thumb', $post['thumb']);
-		$query->bindValue(':thumbwidth', $post['thumbwidth'], PDO::PARAM_INT);
-		$query->bindValue(':thumbheight', $post['thumbheight'], PDO::PARAM_INT);
-		$query->bindValue(':file', $post['file']);
-
-		if (isset($post['width'], $post['height'])) {
-			$query->bindValue(':width', $post['width'], PDO::PARAM_INT);
-			$query->bindValue(':height', $post['height'], PDO::PARAM_INT);
-		} else {
-			$query->bindValue(':width', null, PDO::PARAM_NULL);
-			$query->bindValue(':height', null, PDO::PARAM_NULL);
-		}
-
-		$query->bindValue(':filesize', $post['filesize'], PDO::PARAM_INT);
-		$query->bindValue(':filename', $post['filename']);
+		$query->bindValue(':files', json_encode($post['files']));
+		$query->bindValue(':num_files', $post['num_files']);
 		$query->bindValue(':filehash', $post['filehash']);
 	} else {
-		$query->bindValue(':thumb', null, PDO::PARAM_NULL);
-		$query->bindValue(':thumbwidth', null, PDO::PARAM_NULL);
-		$query->bindValue(':thumbheight', null, PDO::PARAM_NULL);
-		$query->bindValue(':file', null, PDO::PARAM_NULL);
-		$query->bindValue(':width', null, PDO::PARAM_NULL);
-		$query->bindValue(':height', null, PDO::PARAM_NULL);
-		$query->bindValue(':filesize', null, PDO::PARAM_NULL);
-		$query->bindValue(':filename', null, PDO::PARAM_NULL);
+		$query->bindValue(':files', null, PDO::PARAM_NULL);
+		$query->bindValue(':num_files', 0);
 		$query->bindValue(':filehash', null, PDO::PARAM_NULL);
 	}
 
@@ -909,32 +947,39 @@ function bumpThread($id) {
 }
 
 // Remove file from post
-function deleteFile($id, $remove_entirely_if_already=true) {
+function deleteFile($id, $remove_entirely_if_already=true, $file=null) {
 	global $board, $config;
 
-	$query = prepare(sprintf("SELECT `thread`,`thumb`,`file` FROM ``posts_%s`` WHERE `id` = :id LIMIT 1", $board['uri']));
+	$query = prepare(sprintf("SELECT `thread`, `files`, `num_files` FROM ``posts_%s`` WHERE `id` = :id LIMIT 1", $board['uri']));
 	$query->bindValue(':id', $id, PDO::PARAM_INT);
 	$query->execute() or error(db_error($query));
 	if (!$post = $query->fetch(PDO::FETCH_ASSOC))
 		error($config['error']['invalidpost']);
+	$files = json_decode($post['files']);
+	$file_to_delete = $file !== false ? $files[(int)$file] : (object)array('file' => false);
 
-	if ($post['file'] == 'deleted' && !$post['thread'])
+	if ($files[0]->file == 'deleted' && $post['num_files'] == 1 && !$post['thread'])
 		return; // Can't delete OP's image completely.
 
-	$query = prepare(sprintf("UPDATE ``posts_%s`` SET `thumb` = NULL, `thumbwidth` = NULL, `thumbheight` = NULL, `filewidth` = NULL, `fileheight` = NULL, `filesize` = NULL, `filename` = NULL, `filehash` = NULL, `file` = :file WHERE `id` = :id", $board['uri']));
-	if ($post['file'] == 'deleted' && $remove_entirely_if_already) {
+	$query = prepare(sprintf("UPDATE ``posts_%s`` SET `files` = :file WHERE `id` = :id", $board['uri']));
+	if (($file && $file_to_delete->file == 'deleted') && $remove_entirely_if_already) {
 		// Already deleted; remove file fully
-		$query->bindValue(':file', null, PDO::PARAM_NULL);
+		$files[$file] = null;
 	} else {
-		// Delete thumbnail
-		file_unlink($board['dir'] . $config['dir']['thumb'] . $post['thumb']);
+		foreach ($files as $i => $f) {
+			if (($file !== false && $i == $file) || $file === null) {
+				// Delete thumbnail
+				file_unlink($board['dir'] . $config['dir']['thumb'] . $f->thumb);
+				unset($files[$i]->thumb);
 
-		// Delete file
-		file_unlink($board['dir'] . $config['dir']['img'] . $post['file']);
-
-		// Set file to 'deleted'
-		$query->bindValue(':file', 'deleted', PDO::PARAM_INT);
+				// Delete file
+				file_unlink($board['dir'] . $config['dir']['img'] . $f->file);
+				$files[$i]->file = 'deleted';
+			}
+		}
 	}
+
+	$query->bindValue(':file', json_encode($files), PDO::PARAM_STR);
 
 	$query->bindValue(':id', $id, PDO::PARAM_INT);
 	$query->execute() or error(db_error($query));
@@ -973,7 +1018,7 @@ function deletePost($id, $error_if_doesnt_exist=true, $rebuild_after=true) {
 	global $board, $config;
 
 	// Select post and replies (if thread) in one query
-	$query = prepare(sprintf("SELECT `id`,`thread`,`thumb`,`file` FROM ``posts_%s`` WHERE `id` = :id OR `thread` = :id", $board['uri']));
+	$query = prepare(sprintf("SELECT `id`,`thread`,`files` FROM ``posts_%s`` WHERE `id` = :id OR `thread` = :id", $board['uri']));
 	$query->bindValue(':id', $id, PDO::PARAM_INT);
 	$query->execute() or error(db_error($query));
 
@@ -1003,13 +1048,14 @@ function deletePost($id, $error_if_doesnt_exist=true, $rebuild_after=true) {
 			// Rebuild thread
 			$rebuild = &$post['thread'];
 		}
-		if ($post['thumb']) {
-			// Delete thumbnail
-			file_unlink($board['dir'] . $config['dir']['thumb'] . $post['thumb']);
-		}
-		if ($post['file']) {
+		if ($post['files']) {
 			// Delete file
-			file_unlink($board['dir'] . $config['dir']['img'] . $post['file']);
+			foreach (json_decode($post['files']) as $i => $f) {
+				if ($f->file !== 'deleted') {
+					file_unlink($board['dir'] . $config['dir']['img'] . $f->file);
+					file_unlink($board['dir'] . $config['dir']['thumb'] . $f->thumb);
+				}
+			}
 		}
 
 		$ids[] = (int)$post['id'];
@@ -1057,7 +1103,7 @@ function clean() {
 
 	$query->execute() or error(db_error($query));
 	while ($post = $query->fetch(PDO::FETCH_ASSOC)) {
-		deletePost($post['id']);
+		deletePost($post['id'], false, false);
 	}
 }
 
@@ -1126,8 +1172,8 @@ function index($page, $mod=false) {
 
 		$num_images = 0;
 		foreach ($replies as $po) {
-			if ($po['file'])
-				$num_images++;
+			if ($po['num_files'])
+				$num_images+=$po['num_files'];
 
 			$thread->add(new Post($po, $mod ? '?/' : $config['root'], $mod));
 		}
@@ -1150,7 +1196,7 @@ function index($page, $mod=false) {
 		'post_url' => $config['post_url'],
 		'config' => $config,
 		'boardlist' => createBoardlist($mod),
-		'threads' => $threads
+		'threads' => $threads,
 	);
 }
 
@@ -1235,7 +1281,9 @@ function make_comment_hex($str) {
 	if (function_exists('iconv')) {
 		// remove diacritics and other noise
 		// FIXME: this removes cyrillic entirely
-		$str = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $str);
+		$oldstr = $str;
+		$str = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $str);
+		if (!$str) $str = $oldstr;
 	}
 
 	$str = strtolower($str);
@@ -1283,7 +1331,7 @@ function checkRobot($body) {
 // Returns an associative array with 'replies' and 'images' keys
 function numPosts($id) {
 	global $board;
-	$query = prepare(sprintf("SELECT COUNT(*) AS `replies`, COUNT(NULLIF(`file`, 0)) AS `images` FROM ``posts_%s`` WHERE `thread` = :thread", $board['uri'], $board['uri']));
+	$query = prepare(sprintf("SELECT COUNT(*) AS `replies`, SUM(`num_files`) AS `images` FROM ``posts_%s`` WHERE `thread` = :thread", $board['uri'], $board['uri']));
 	$query->bindValue(':thread', $id, PDO::PARAM_INT);
 	$query->execute() or error(db_error($query));
 
@@ -1558,7 +1606,7 @@ function markup_url($matches) {
 	$markup_urls[] = $url;
 
 	$link = (object) array(
-		'href' => $url,
+		'href' => $config['link_prefix'] . $url,
 		'text' => $url,
 		'rel' => 'nofollow',
 		'target' => '_blank',
@@ -1841,7 +1889,7 @@ function markup(&$body, $track_cites = false) {
 	}
 	
 	// replace tabs with 8 spaces
-	$body = str_replace("\t", '        ', $body);
+	$body = str_replace("\t", '		', $body);
 		
 	return $tracked_cites;
 }
@@ -1988,8 +2036,8 @@ function buildThread50($id, $return = false, $mod = false, $thread = null, $anti
 			if (!isset($thread)) {
 				$thread = new Thread($post, $mod ? '?/' : $config['root'], $mod);
 			} else {
-				if ($post['file'])
-					$num_images++;
+				if ($post['files'])
+					$num_images += $post['num_files'];
 					
 				$thread->add(new Post($post, $mod ? '?/' : $config['root'], $mod));
 			}
@@ -2001,7 +2049,8 @@ function buildThread50($id, $return = false, $mod = false, $thread = null, $anti
 
 
 		if ($query->rowCount() == $config['noko50_count']+1) {
-			$count = prepare(sprintf("SELECT COUNT(`id`) as `num` FROM ``posts_%s`` WHERE `thread` = :thread UNION ALL SELECT COUNT(`id`) FROM ``posts_%s`` WHERE `file` IS NOT NULL AND `thread` = :thread", $board['uri'], $board['uri']));
+			$count = prepare(sprintf("SELECT COUNT(`id`) as `num` FROM ``posts_%s`` WHERE `thread` = :thread UNION ALL
+						  SELECT SUM(`num_files`) FROM ``posts_%s`` WHERE `files` IS NOT NULL AND `thread` = :thread", $board['uri'], $board['uri']));
 			$count->bindValue(':thread', $id, PDO::PARAM_INT);
 			$count->execute() or error(db_error($count));
 			
@@ -2021,8 +2070,8 @@ function buildThread50($id, $return = false, $mod = false, $thread = null, $anti
 		foreach ($allPosts as $index => $post) {
 			if ($index == count($allPosts)-count($thread->posts))
 				break;  
-			if ($post->file)
-				$thread->omitted_images++;
+			if ($post->files)
+				$thread->omitted_images += $post->num_files;
 		}
 	}
 
@@ -2168,13 +2217,15 @@ function getPostByHashInThread($hash, $thread) {
 }
 
 function undoImage(array $post) {
-	if (!$post['has_file'])
+	if (!$post['has_file'] || !isset($post['files']))
 		return;
 
-	if (isset($post['file_path']))
-		file_unlink($post['file_path']);
-	if (isset($post['thumb_path']))
-		file_unlink($post['thumb_path']);
+	foreach ($post['files'] as $key => $file) {
+		if (isset($file['file_path']))
+			file_unlink($file['file_path']);
+		if (isset($file['thumb_path']))
+			file_unlink($file['thumb_path']);
+	}
 }
 
 function rDNS($ip_addr) {

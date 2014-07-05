@@ -25,7 +25,7 @@ a.post_no {
 p.intro a.post_no {
 	color: inherit;
 }
-p.intro a.post_no, p.intro a.email {
+p.intro a.post_no, p.intro a.email, p.intro a.post_anchor {
 	margin: 0;
 }
 p.intro a.email span.name {
@@ -109,10 +109,22 @@ form table tr td div label {
 .unimportant, .unimportant * {
 	font-size: 10px;
 }
+.file {
+    float: left;
+    margin-right: 2px;
+}
+.multifile {
+    border: 2px dashed #B7C5D9;
+}
+.file:not(.multifile) .post-image {
+    float: left;
+}
+.file:not(.multifile) {
+    float: none;
+}
 p.fileinfo {
 	display: block;
 	margin: 0;
-	padding-right: 7em;
 }
 div.banner {
 	background-color: #E04000;
@@ -133,13 +145,13 @@ img.banner, img.board_image {
 	border: 1px solid #a9a9a9;
 	margin: 12px auto 0 auto;
 }
-img.post-image {
+.post-image {
 	display: block;
 	float: left;
 	margin: 10px 20px;
 	border: none;
 }
-div.post img.post-image {
+div.post .post-image {
 	padding: 5px;
 	margin: 5px 20px 0 0;
 }
@@ -516,6 +528,45 @@ form.ban-appeal textarea {
 .theme-catalog div.thread strong {
     display: block;
 }
+.theme-catalog div.threads{
+        text-align: center;
+        margin-left: -20px;
+}
+
+.theme-catalog div.grid-size-small {
+        width: 200px;
+        max-width: 200px;
+        max-height: 350px;
+}       
+
+.theme-catalog div.grid-size-large {
+        width: 300px;
+        max-width: 300px;
+        max-height: 450px;
+}       
+
+.theme-catalog img.thread-image {
+        height: auto;
+        max-width: 100%;
+}
+
+@media (max-width: 420px) {
+        .theme-catalog ul#Grid {
+                padding-left: 18px;
+        }
+        .theme-catalog div.thread {
+                width: auto;
+                margin-left: 0;
+                margin-right: 0;
+
+        }
+        .theme-catalog div.threads {
+                overflow: hidden;
+        }
+}
+
+@include url("tooltipster/tooltipster.css");
+
 .compact-boardlist {
         padding: 3px;
         padding-bottom: 0px;
@@ -570,3 +621,9 @@ form.ban-appeal textarea {
         display: inline-block;
 	vertical-align: middle;
 }
+
+/* Containerchan */
+    div.post video.post-image {
+        padding: 0px;
+        margin: 10px 25px 5px 5px;
+    }
